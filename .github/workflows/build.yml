@@ -1,0 +1,43 @@
+name: Firmware bauen
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ hashFiles('platformio.ini') }}
+
+      - name: PlatformIO installieren
+        run: pip install -U platformio
+
+      - name: Firmware kompilieren
+        run: pio run -e m5stick-s3
+
+      - name: Komplettes Flash-Image erzeugen
+        run: |
+          B=.pio/build/m5stick-s3
+          APP0=$(find ~/.platformio/packages -name boot_app0.bin | head -n1)
+          pip install -U esptool
+          python -m esptool --chip esp32s3 merge-bin -o $B/nec-ir-sticks3-full.bin \
+            --flash-mode dio --flash-size 8MB \
+            0x0 $B/bootloader.bin 0x8000 $B/partitions.bin 0xe000 "$APP0" 0x10000 $B/firmware.bin
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nec-ir-sticks3-firmware
+          path: |
+            .pio/build/m5stick-s3/nec-ir-sticks3-full.bin
+            .pio/build/m5stick-s3/firmware.bin
