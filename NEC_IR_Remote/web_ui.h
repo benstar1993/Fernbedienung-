@@ -61,6 +61,11 @@ td.act{text-align:right;white-space:nowrap}
   <label class="grow">WLAN-Passwort<br><input id="sta_pass" type="password" placeholder="unveraendert" style="width:100%"></label></div>
   <div class="row" style="margin-top:10px"><button class="pri" onclick="saveSettings()">Speichern &amp; neu starten</button></div>
  </div>
+ <div class="card"><b>Firmware-Update (OTA)</b>
+  <p class="mut">Installiert: <span id="fwver">?</span>. Neue <code>firmware.bin</code> auswaehlen (Arduino IDE: <i>Sketch &rarr; Kompilierte Binaerdatei exportieren</i>).</p>
+  <div class="row"><input type="file" id="fwfile" accept=".bin" class="grow"><button class="pri" id="fwbtn" onclick="uploadFw()">Update starten</button></div>
+  <progress id="fwprog" max="100" value="0" class="hide" style="width:100%;margin-top:8px"></progress>
+ </div>
  <div class="card"><b>Sicherung</b><p class="mut">Tasten und Makros als Datei sichern bzw. auf weitere StickS3 uebertragen.</p>
   <div class="row"><a href="/api/backup"><button>Backup herunterladen</button></a>
   <label><button onclick="document.getElementById('restore').click()">Backup einspielen</button></label>
@@ -140,10 +145,21 @@ async function saveSettings(){const b={ap_ssid:$('#ap_ssid').value,sta_ssid:$('#
  if($('#sta_pass').value)b.sta_pass=$('#sta_pass').value;
  await api('/api/settings',b);toast('Gespeichert – Geraet startet neu. Ggf. neu mit dem WLAN verbinden.')}
 async function restore(inp){const f=inp.files[0];if(!f)return;try{const j=JSON.parse(await f.text());await api('/api/restore',j);toast('Backup eingespielt');load()}catch(e){toast('Backup ungueltig',true)}inp.value=''}
+function uploadFw(){const f=$('#fwfile').files[0];if(!f)return toast('Bitte .bin-Datei waehlen',true);
+ if(!confirm('Firmware "'+f.name+'" installieren? Das Geraet startet danach neu.'))return;
+ const fd=new FormData();fd.append('firmware',f,f.name);const x=new XMLHttpRequest(),pr=$('#fwprog');
+ pr.classList.remove('hide');pr.value=0;$('#fwbtn').disabled=true;
+ x.upload.onprogress=e=>{if(e.lengthComputable)pr.value=Math.round(e.loaded*100/e.total)};
+ x.onload=()=>{let j={};try{j=JSON.parse(x.responseText)}catch(e){}
+  if(j.ok){toast('Update erfolgreich – Neustart, Seite laedt in 10 s neu');setTimeout(()=>location.reload(),10000)}
+  else{toast(j.error||'Update fehlgeschlagen',true);$('#fwbtn').disabled=false}};
+ x.onerror=()=>{toast('Verbindung abgebrochen',true);$('#fwbtn').disabled=false};
+ x.open('POST','/api/update');x.send(fd)}
 async function resetAll(){if(!confirm('Alle Tasten und Makros zuruecksetzen?'))return;await api('/api/reset',{});load()}
 
-function renderStatus(){const r=state.run||{},l=state.learn||{},el=$('#status');
- if(r.running){el.innerHTML=`<div class="row"><div class="grow"><b>${esc(r.name)}</b><br><span class="mut">Schritt ${r.step}/${r.total}: ${esc(r.current)}</span></div><button class="dan" onclick="stopMacro()">Stopp</button></div>`;el.classList.remove('hide')}
+function renderStatus(){const r=state.run||{},l=state.learn||{},o=state.ota||{},el=$('#status');
+ if(o.active){el.innerHTML=esc(o.msg);el.classList.remove('hide')}
+ else if(r.running){el.innerHTML=`<div class="row"><div class="grow"><b>${esc(r.name)}</b><br><span class="mut">Schritt ${r.step}/${r.total}: ${esc(r.current)}</span></div><button class="dan" onclick="stopMacro()">Stopp</button></div>`;el.classList.remove('hide')}
  else if(l.key||l.msg){el.innerHTML=`<div class="row"><div class="grow">${esc(l.msg)}</div>${l.key?'<button onclick="api(\'/api/learn\',{key:\'\'})">Abbrechen</button>':''}</div>`;el.classList.remove('hide')}
  else el.classList.add('hide')}
 
@@ -153,7 +169,7 @@ async function poll(){try{state=await api('/api/state');
  if(lastLearn!==state.learn.key)renderKeys();
  lastLearn=state.learn.key;}catch(e){}}
 async function load(){state=await api('/api/state');keys=state.keys;macros=state.macros;
- const w=state.wifi;$('#ap_ssid').value=w.ap_ssid;$('#sta_ssid').value=w.sta_ssid||'';
+ $('#fwver').textContent=state.version||'?';const w=state.wifi;$('#ap_ssid').value=w.ap_ssid;$('#sta_ssid').value=w.sta_ssid||'';
  $('#wifiinfo').textContent=`Access Point: ${w.ap_ssid} (${w.ap_ip})`+(w.sta_ssid?` · WLAN ${w.sta_ssid}: ${w.sta_ip||'nicht verbunden'}`:'');
  renderRun();renderEdit();renderKeys();renderStatus()}
 load();setInterval(poll,1000);

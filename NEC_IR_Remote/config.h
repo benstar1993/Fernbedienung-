@@ -11,6 +11,9 @@
 static constexpr int PIN_IR_TX = 46;
 static constexpr int PIN_IR_RX = 42;
 
+// Firmware-Version (wird im Web-Interface und am Display angezeigt)
+static constexpr const char *FW_VERSION = "1.1.0";
+
 // Infrarot-Parameter (NEC-Protokoll, 38 kHz Traeger)
 static constexpr uint32_t IR_CARRIER_HZ   = 38000;
 static constexpr float    IR_CARRIER_DUTY = 0.33f;

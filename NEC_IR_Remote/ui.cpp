@@ -1,4 +1,4 @@
-// NEC M431 IR-Fernbedienung mit Makros fuer M5Stack StickS3
+// Display- und Tastenbedienung am StickS3
 //
 // Bedienung am Geraet:
 //   Taste A (Front)  kurz : ausgewaehltes Makro starten / laufendes Makro stoppen
@@ -8,9 +8,12 @@
 // Einrichtung (Tasten anlernen, Makros bearbeiten) ueber das Web-Interface.
 #include <M5Unified.h>
 
+#include "ui.h"
+
 #include "config.h"
 #include "ir.h"
 #include "macro.h"
+#include "ota.h"
 #include "store.h"
 #include "web.h"
 
@@ -87,7 +90,7 @@ void drawInfo() {
     canvas.drawString(store::settings.staSsid + ": " + (sta.length() ? sta : String("verbinde...")), 4, y);
   }
   canvas.setTextColor(COL_MUT);
-  canvas.drawString("A lang: zurueck", 4, canvas.height() - 18);
+  canvas.drawString(String("FW ") + FW_VERSION + "   A lang: zurueck", 4, canvas.height() - 18);
 }
 
 void drawLearn() {
@@ -155,10 +158,28 @@ void drawList() {
   }
 }
 
+void drawOta() {
+  header("Firmware-Update");
+  canvas.setFont(&fonts::FreeSans9pt7b);
+  canvas.setTextDatum(top_left);
+  canvas.setTextColor(TFT_WHITE);
+  drawWrapped(ota::message(), 4, 28, canvas.width() - 8, 20);
+  int p = ota::progress();
+  if (p >= 0) {
+    int w = canvas.width() - 8;
+    canvas.drawRect(4, 96, w, 10, COL_MUT);
+    canvas.fillRect(5, 97, (w - 2) * p / 100, 8, COL_OK);
+  }
+  canvas.setFont(&fonts::Font2);
+  canvas.setTextColor(COL_WARN);
+  canvas.drawString("Nicht ausschalten!", 4, canvas.height() - 18);
+}
+
 void draw() {
   canvas.fillSprite(COL_BG);
   macro::Status s = macro::status();
-  if (web::learnKey().length()) drawLearn();
+  if (ota::active()) drawOta();
+  else if (web::learnKey().length()) drawLearn();
   else if (s.running) drawRunning(s);
   else if (showInfo) drawInfo();
   else drawList();
@@ -175,7 +196,7 @@ void wake() {
 
 }  // namespace
 
-void setup() {
+void uiSetup() {
   auto cfg = M5.config();
   M5.begin(cfg);
   M5.Speaker.end();                 // Verstaerker aus, sonst stoert er den IR-Empfang
@@ -194,7 +215,7 @@ void setup() {
   draw();
 }
 
-void loop() {
+void uiLoop() {
   M5.update();
   web::loop();
 
@@ -208,7 +229,7 @@ void loop() {
   if (anyBtn) wake();
 
   macro::Status s = macro::status();
-  if (M5.BtnA.wasClicked()) {
+  if (!ota::active() && M5.BtnA.wasClicked()) {
     if (s.running) {
       macro::stop();
     } else if (web::learnKey().length()) {
@@ -225,7 +246,7 @@ void loop() {
     if (M5.BtnB.wasHold()) selected = (selected + n - 1) % n;
   }
 
-  if (s.running || web::learnKey().length()) lastInput = millis();
+  if (s.running || web::learnKey().length() || ota::active()) lastInput = millis();
   if (!dimmed && millis() - lastInput > 60000) {
     M5.Display.setBrightness(20);
     dimmed = true;

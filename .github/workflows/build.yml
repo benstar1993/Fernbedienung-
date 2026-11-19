@@ -41,3 +41,30 @@ jobs:
           path: |
             .pio/build/m5stick-s3/nec-ir-sticks3-full.bin
             .pio/build/m5stick-s3/firmware.bin
+
+  # Prueft, dass der Sketch auch mit der Arduino IDE / arduino-cli baut
+  arduino:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: arduino/setup-arduino-cli@v2
+
+      - name: ESP32-Core und Bibliotheken installieren
+        run: |
+          arduino-cli config init
+          arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32
+          arduino-cli lib install M5Unified ArduinoJson
+
+      - name: Sketch kompilieren
+        run: |
+          arduino-cli compile \
+            --fqbn "esp32:esp32:esp32s3:FlashSize=8M,PartitionScheme=default_8MB,CDCOnBoot=cdc" \
+            --export-binaries NEC_IR_Remote
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nec-ir-sticks3-arduino-build
+          path: NEC_IR_Remote/build/**/*.bin

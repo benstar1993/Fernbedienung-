@@ -1,3 +1,4 @@
 .pio/
 .vscode/
 *.tmp
+NEC_IR_Remote/build/

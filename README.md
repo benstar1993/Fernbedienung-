@@ -16,6 +16,7 @@ oder eine Menü-Navigation im OSD.
 - **Backup/Restore** als JSON-Datei → identische Konfiguration auf mehrere Sticks verteilen
 - Eigener WLAN-Access-Point (kein Internet nötig), optional zusätzlich im Hallen-WLAN
 - Alles bleibt im Flash gespeichert (LittleFS)
+- **OTA-Updates**: neue Firmware per Browser hochladen oder direkt aus der Arduino IDE über WLAN
 
 ## Bedienung am StickS3
 
@@ -54,21 +55,56 @@ Nach 60 s ohne Bedienung wird das Display gedimmt; der erste Tastendruck weckt e
 
 ## Firmware bauen & flashen
 
-### Fertiges Image (GitHub Actions)
+### Arduino IDE (empfohlen)
 
-Jeder Push baut die Firmware automatisch (*Actions → Firmware bauen → Artifacts*).
-`nec-ir-sticks3-full.bin` enthält Bootloader, Partitionen und App und wird an
-Adresse `0x0` geschrieben, z.B. mit dem Browser-Tool https://espressif.github.io/esptool-js/
-oder:
+1. *Datei → Voreinstellungen → Zusätzliche Boardverwalter-URLs*:
+   `https://espressif.github.io/arduino-esp32/package_esp32_index.json`
+2. *Boardverwalter*: **esp32** von Espressif (≥ 3.0) installieren.
+3. *Bibliotheksverwalter*: **M5Unified** (≥ 0.3.0) und **ArduinoJson** (≥ 7) installieren.
+4. Ordner `NEC_IR_Remote/` öffnen (`NEC_IR_Remote.ino`).
+5. Werkzeuge einstellen:
+   | Einstellung | Wert |
+   |---|---|
+   | Board | ESP32S3 Dev Module |
+   | Flash Size | 8MB |
+   | Partition Scheme | 8M with spiffs (3MB APP/1.5MB SPIFFS) |
+   | USB CDC On Boot | Enabled |
+6. StickS3 per USB-C anschließen, Port wählen, **Hochladen**.
 
-```bash
-esptool.py --chip esp32s3 write_flash 0x0 nec-ir-sticks3-full.bin
-```
+Das erste Mal muss per USB geflasht werden – danach geht alles per OTA.
 
-Lässt sich der Stick nicht ansprechen, ihn wie in der M5Stack-Dokumentation zum StickS3
-beschrieben in den Download-Modus versetzen und erneut flashen.
+### OTA-Update (Over the Air)
 
-### Selbst bauen (PlatformIO)
+**Variante A – Browser (z.B. vom Handy, ohne IDE):**
+1. In der Arduino IDE *Sketch → Kompilierte Binärdatei exportieren* → im Sketch-Ordner
+   unter `build/…/NEC_IR_Remote.ino.bin` liegt die Firmware
+   (oder `firmware.bin` aus den GitHub-Actions-Artefakten).
+2. Mit dem WLAN des Sticks verbinden, http://192.168.4.1 → *Einstellungen* →
+   *Firmware-Update (OTA)* → Datei wählen → *Update starten*.
+3. Der Stick zeigt den Fortschritt, prüft das Image und startet neu.
+   Tasten, Makros und WLAN-Einstellungen bleiben erhalten.
+
+**Variante B – direkt aus der Arduino IDE:**
+Laptop mit dem WLAN des Sticks (oder demselben Hallen-WLAN) verbinden. Unter
+*Werkzeuge → Port* erscheint ein Netzwerk-Port `nec-ir-xxxx`. Diesen wählen und normal
+*Hochladen*. Passwort = AP-Passwort (Standard `necremote`).
+
+Mit PlatformIO: `pio run -e m5stick-s3-ota -t upload`.
+
+Die Firmware nutzt zwei App-Partitionen: Schlägt ein Update fehl, bleibt die alte
+Version aktiv.
+
+### Fertige Images (GitHub Actions)
+
+Jeder Push baut die Firmware automatisch mit PlatformIO **und** arduino-cli
+(*Actions → Firmware bauen → Artifacts*).
+
+- `firmware.bin` – für das OTA-Update im Browser
+- `nec-ir-sticks3-full.bin` – Komplettimage für die Erstinstallation an Adresse `0x0`,
+  z.B. mit https://espressif.github.io/esptool-js/ oder
+  `esptool.py --chip esp32s3 write_flash 0x0 nec-ir-sticks3-full.bin`
+
+### PlatformIO (alternativ)
 
 ```bash
 pip install platformio
@@ -76,18 +112,18 @@ pio run -t upload        # baut und flasht über USB-C
 pio device monitor       # serielle Ausgabe
 ```
 
-Abhängigkeiten: Arduino-ESP32 3.x (pioarduino), M5Unified ≥ 0.3.0, ArduinoJson 7.
-
 ## Aufbau
 
 | Datei | Inhalt |
 |---|---|
-| `src/ir.cpp` | IR senden/empfangen über das RMT-Peripheral (38 kHz, NEC-Encoder/-Decoder, Rohsignale) |
-| `src/store.cpp` | Tasten, Makros, Einstellungen als JSON im LittleFS |
-| `src/macro.cpp` | Makro-Ausführung in eigenem Task (stoppbar) |
-| `src/web.cpp`, `src/web_ui.h` | WLAN, REST-API und Web-Oberfläche |
-| `src/main.cpp` | Display & Tasten am StickS3 |
-| `src/config.h` | Pins (IR-TX GPIO46, IR-RX GPIO42), Timings, Standardwerte |
+| `NEC_IR_Remote/NEC_IR_Remote.ino` | Arduino-Sketch (Einstiegspunkt) |
+| `NEC_IR_Remote/ir.cpp` | IR senden/empfangen über das RMT-Peripheral (38 kHz, NEC-Encoder/-Decoder, Rohsignale) |
+| `NEC_IR_Remote/store.cpp` | Tasten, Makros, Einstellungen als JSON im LittleFS |
+| `NEC_IR_Remote/macro.cpp` | Makro-Ausführung in eigenem Task (stoppbar) |
+| `NEC_IR_Remote/web.cpp`, `web_ui.h` | WLAN, REST-API und Web-Oberfläche |
+| `NEC_IR_Remote/ui.cpp` | Display & Tasten am StickS3 |
+| `NEC_IR_Remote/ota.cpp` | OTA-Update (Browser-Upload und ArduinoOTA) |
+| `NEC_IR_Remote/config.h` | Pins (IR-TX GPIO46, IR-RX GPIO42), Timings, Standardwerte |
 
 ### REST-API (für Automatisierung, z.B. Companion/Stream Deck)
 
@@ -99,6 +135,7 @@ Abhängigkeiten: Arduino-ESP32 3.x (pioarduino), M5Unified ≥ 0.3.0, ArduinoJso
 | POST | `/api/send` | `{"key": "HDMI1", "times": 1}` |
 | POST | `/api/learn` | `{"key": "MENU"}` (leer = abbrechen) |
 | GET/POST | `/api/backup` / `/api/restore` | Backup-JSON |
+| POST | `/api/update` | Firmware als `multipart/form-data` (Feld `firmware`) |
 
 ## Hinweise
 

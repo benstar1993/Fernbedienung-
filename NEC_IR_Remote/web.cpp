@@ -4,8 +4,10 @@
 #include <WebServer.h>
 #include <WiFi.h>
 
+#include "config.h"
 #include "ir.h"
 #include "macro.h"
+#include "ota.h"
 #include "store.h"
 #include "web_ui.h"
 
@@ -69,6 +71,11 @@ void handleState() {
   l["key"] = learnId;
   l["msg"] = learnMsg;
 
+  JsonObject o = d["ota"].to<JsonObject>();
+  o["active"] = ota::active();
+  o["msg"] = ota::message();
+  d["version"] = FW_VERSION;
+
   JsonObject w = d["wifi"].to<JsonObject>();
   w["ap_ssid"] = store::settings.apSsid;
   w["ap_ip"] = apIp();
@@ -100,6 +107,7 @@ void handleLearn() {
   }
   if (!store::findKey(id)) return sendErr("Unbekannte Taste");
   if (macro::status().running) return sendErr("Waehrend eines Makros nicht moeglich");
+  if (ota::active()) return sendErr("Waehrend eines Updates nicht moeglich");
   startLearn(id);
   sendOk();
 }
@@ -126,6 +134,7 @@ void handleRun() {
   JsonDocument b;
   if (!parseBody(b)) return;
   String err;
+  if (ota::active()) return sendErr("Waehrend eines Updates nicht moeglich");
   if (!macro::run(b["index"] | 9999, err)) return sendErr(err);
   sendOk();
 }
@@ -160,6 +169,39 @@ void handleRestore() {
   store::saveKeys();
   store::saveMacros();
   sendOk();
+}
+
+// Firmware-Upload (multipart/form-data, Feld "firmware")
+void handleUpdateUpload() {
+  HTTPUpload &up = server.upload();
+  switch (up.status) {
+    case UPLOAD_FILE_START:
+      Serial.printf("OTA: %s\n", up.filename.c_str());
+      ota::webStart();
+      break;
+    case UPLOAD_FILE_WRITE:
+      ota::webWrite(up.buf, up.currentSize);
+      break;
+    case UPLOAD_FILE_END:
+      ota::webFinish();
+      break;
+    case UPLOAD_FILE_ABORTED:
+      ota::webAbort();
+      break;
+    default:
+      break;
+  }
+}
+
+void handleUpdateDone() {
+  if (ota::lastError().length() || !ota::active()) {
+    String e = ota::lastError().length() ? ota::lastError() : String("Keine Firmware empfangen");
+    ota::webAbort();
+    return sendErr("Update fehlgeschlagen: " + e);
+  }
+  sendOk();
+  restartPending = true;
+  restartAt = millis() + 1000;
 }
 
 void handleReset() {
@@ -212,12 +254,15 @@ void begin() {
   server.on("/api/restore", HTTP_POST, handleRestore);
   server.on("/api/reset", HTTP_POST, handleReset);
   server.on("/api/settings", HTTP_POST, handleSettings);
+  server.on("/api/update", HTTP_POST, handleUpdateDone, handleUpdateUpload);
   server.onNotFound([] { server.send(404, "text/plain", "Nicht gefunden"); });
   server.begin();
+  ota::begin();
 }
 
 void loop() {
   server.handleClient();
+  ota::loop();
 
   if (learnId.length()) {
     IrCode c;
