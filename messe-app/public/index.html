@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b5cad">
+  <title>Messe-Technik</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="vendor/leaflet.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-mark">MT</div>
+      <div>
+        <div class="brand-title" id="eventTitle">Messe-Technik</div>
+        <div class="brand-sub" id="eventSub"></div>
+      </div>
+    </div>
+    <nav class="nav">
+      <button class="nav-item active" data-view="plan"><svg viewBox="0 0 24 24"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><path d="M9 3v15M15 6v15"/></svg><span>Hallenplan</span></button>
+      <button class="nav-item" data-view="list"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg><span>Positionen</span></button>
+      <button class="nav-item" data-view="docs"><svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg><span>Unterlagen</span></button>
+      <button class="nav-item" data-view="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span>Sync &amp; Export</span></button>
+    </nav>
+    <div class="side-stats" id="sideStats"></div>
+    <div class="side-foot">
+      <div class="sync-state" id="syncState"><span class="dot"></span><span class="txt">lokal</span></div>
+      <button class="user-chip" id="userChip" title="Name ändern"></button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <!-- Hallenplan -->
+    <section class="view active" id="view-plan">
+      <header class="topbar">
+        <div class="topbar-title"><h1>Hallenplan</h1><span class="muted" id="planSub"></span></div>
+        <div class="topbar-actions">
+          <div class="search-wrap"><input type="search" id="planSearch" placeholder="POS suchen …" autocomplete="off"><div class="search-results" id="planSearchResults"></div></div>
+          <button class="btn ghost" id="legendBtn">Legende</button>
+        </div>
+      </header>
+      <div class="legend-bar" id="statusLegend"></div>
+      <div id="map"></div>
+    </section>
+
+    <!-- Liste -->
+    <section class="view" id="view-list">
+      <header class="topbar">
+        <div class="topbar-title"><h1>Positionen</h1><span class="muted" id="listCount"></span></div>
+        <div class="topbar-actions filters">
+          <input type="search" id="listSearch" placeholder="POS, Bezeichnung, Gerät …" autocomplete="off">
+          <select id="fBereich"><option value="">Alle Bereiche</option></select>
+          <select id="fStatus"><option value="">Alle Status</option></select>
+          <label class="check"><input type="checkbox" id="fRelevant" checked> nur mit Medientechnik</label>
+        </div>
+      </header>
+      <div class="list-wrap"><div class="pos-list" id="posList"></div></div>
+    </section>
+
+    <!-- Unterlagen -->
+    <section class="view" id="view-docs">
+      <header class="topbar"><div class="topbar-title"><h1>Unterlagen</h1><span class="muted">Eckdaten, Aufträge, Anhang aus dem Booklet</span></div></header>
+      <div class="page-scroll"><div class="docs" id="docs"></div></div>
+    </section>
+
+    <!-- Sync & Export -->
+    <section class="view" id="view-settings">
+      <header class="topbar"><div class="topbar-title"><h1>Sync &amp; Export</h1></div></header>
+      <div class="page-scroll"><div class="settings" id="settings"></div></div>
+    </section>
+  </main>
+
+  <!-- POS-Detail -->
+  <div class="drawer-backdrop" id="drawerBackdrop"></div>
+  <aside class="drawer" id="drawer" aria-hidden="true">
+    <div class="drawer-inner" id="drawerInner"></div>
+  </aside>
+</div>
+
+<!-- Scanner -->
+<div class="modal" id="scanModal" hidden>
+  <div class="modal-card scan-card">
+    <div class="modal-head">
+      <div><div class="modal-title">Seriennummer scannen</div><div class="muted small" id="scanTarget"></div></div>
+      <button class="icon-btn" id="scanClose" aria-label="Schließen">✕</button>
+    </div>
+    <div class="scan-video-wrap">
+      <video id="scanVideo" playsinline muted></video>
+      <div class="scan-frame"></div>
+      <div class="scan-hint" id="scanHint">Barcode/QR-Code der Seriennummer ins Feld halten</div>
+    </div>
+    <div class="scan-controls">
+      <button class="btn ghost small" id="scanTorch" hidden>Licht</button>
+      <button class="btn ghost small" id="scanSwitch" hidden>Kamera wechseln</button>
+    </div>
+    <div class="scan-result">
+      <input type="text" id="scanValue" placeholder="Seriennummer (scannen oder eintippen)" autocomplete="off" autocapitalize="characters" spellcheck="false">
+      <button class="btn primary" id="scanSave">Übernehmen</button>
+    </div>
+    <label class="check small"><input type="checkbox" id="scanNext" checked> danach nächstes freies Gerät dieser Position scannen</label>
+  </div>
+</div>
+
+<!-- Bildbetrachter -->
+<div class="modal viewer" id="viewer" hidden>
+  <button class="icon-btn viewer-close" id="viewerClose" aria-label="Schließen">✕</button>
+  <div class="viewer-body"><img id="viewerImg" alt=""></div>
+  <div class="viewer-bar" id="viewerBar"></div>
+</div>
+
+<!-- Name -->
+<div class="modal" id="nameModal" hidden>
+  <div class="modal-card small-card">
+    <div class="modal-title">Wer arbeitet hier?</div>
+    <p class="muted">Name oder Kürzel – wird bei Status, Seriennummern und Fotos gespeichert.</p>
+    <input type="text" id="nameInput" placeholder="z. B. Max M." autocomplete="name">
+    <div class="row-end"><button class="btn primary" id="nameSave">Speichern</button></div>
+  </div>
+</div>
+
+<input type="file" id="photoInput" accept="image/*" capture="environment" hidden>
+<input type="file" id="photoInputMulti" accept="image/*" multiple hidden>
+<input type="file" id="importInput" accept="application/json,.json" hidden>
+<div class="toast" id="toast"></div>
+
+<script src="vendor/leaflet.js"></script>
+<script src="vendor/zxing.min.js" defer></script>
+<script src="store.js"></script>
+<script src="scanner.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
