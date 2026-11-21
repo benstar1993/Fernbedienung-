@@ -305,6 +305,11 @@ def main():
             "plan": plan, "bookletPages": pages, "appendix": appendix, "pos": out_pos}
     with open(os.path.join(OUT, "project.json"), "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
+    # zusätzlich als Script, damit die App ohne Webserver (Doppelklick auf index.html) läuft
+    with open(os.path.join(OUT, "project.js"), "w", encoding="utf-8") as f:
+        f.write("window.PROJECT_DATA = ")
+        json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
+        f.write(";\n")
     print(f"{len(out_pos)} POS, {len(coords)} im Plan, {len(sections)} mit Booklet-Ausschnitt, {len(appendix)} Anhangseiten")
     print("ohne Planposition:", [i for i in ids if i not in coords])
 

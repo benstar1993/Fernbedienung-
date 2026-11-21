@@ -1,5 +1,3 @@
-server/data/
-server/*.pem
 __pycache__/
 # Projektdaten (Kundendaten) nicht ins öffentliche Repo – mit tools/build_data.py erzeugen
 public/data/

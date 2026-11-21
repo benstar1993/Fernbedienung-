@@ -40,12 +40,13 @@
 
   /* ---------------- Start ---------------- */
   async function boot() {
-    D = await (await fetch("data/project.json", { cache: "no-cache" })).json();
+    // Daten kommen aus data/project.js (Script-Tag) – funktioniert auch per Doppelklick (file://)
+    D = window.PROJECT_DATA;
+    if (!D) throw new Error("data/project.js fehlt");
     D.pos.forEach((p) => POS.set(p.id, p));
     const e = D.event;
     const projectId = [e.Kunde, e.Messe, e.Jahr].filter(Boolean).join("-").replace(/\s+/g, "_") || "projekt";
     await Store.init(projectId);
-    await Sync.detect();
 
     document.title = `${e.Messe || "Messe"} ${e.Jahr || ""} · Messe-Technik`;
     $("#eventTitle").textContent = `${e.Messe || ""} ${e.Jahr || ""}`.trim() || "Messe-Technik";
@@ -62,23 +63,19 @@
     renderStats();
 
     Store.onChange((changed) => {
-      renderSyncState();
       if (!changed || !changed.size) return;
       for (const pid of changed) updateMarker(pid);
       renderStats();
       if ($("#view-list").classList.contains("active")) renderList();
-      if (current && (changed.has(current) || changed.has("__photos"))) {
+      if (current && (changed.has(current))) {
         const a = document.activeElement;
         if (a && $("#drawer").contains(a) && a.matches("input,textarea")) pendingRender = true;
         else renderDetail(current);
       }
     });
-    Sync.start();
-    renderSyncState();
     if (!Store.user) openNameModal();
     handleHash();
     window.addEventListener("hashchange", handleHash);
-    if ("serviceWorker" in navigator && location.protocol !== "file:") navigator.serviceWorker.register("sw.js").catch(() => {});
   }
 
   /* ---------------- Navigation ---------------- */
@@ -346,10 +343,6 @@
       const id = img.dataset.src;
       const url = await Store.photoURL(id);
       if (url) img.src = url;
-      if (Sync.base() && !(await Store.isUploaded(id)) && (await Store.photoBlob(id))) {
-        const b = $(`[data-badge="${CSS.escape(id)}"]`);
-        if (b) { b.classList.add("up"); b.textContent = "nicht hochgeladen"; }
-      }
     });
   }
 
@@ -540,35 +533,18 @@
         <div class="form-row"><input type="text" id="setName" value="${esc(Store.user)}" placeholder="Name oder Kürzel"><button class="btn" id="setNameSave">Speichern</button></div>
         <p class="help">Wird bei jeder Änderung (Status, Seriennummer, Foto, Notiz) mitgespeichert.</p></div></div>
 
-      <div class="card"><div class="card-h"><h2>Server-Synchronisation</h2><span class="sync-state ${esc(Store.syncInfo.state)}" id="syncState2"><span class="dot"></span><span class="txt">${esc(Store.syncInfo.text)}</span></span></div><div class="card-b">
-        ${Sync.sameOrigin ? `<p class="help" style="margin-top:0">Die App läuft auf dem Sync-Server – Abgleich ist automatisch aktiv.</p>` : ""}
-        <div class="form-row"><input type="text" id="setServer" value="${esc(s.server)}" placeholder="${Sync.sameOrigin ? "(dieser Server)" : "https://server:8080"}"></div>
-        <div class="form-row" style="margin-top:8px"><input type="text" id="setToken" value="${esc(s.token)}" placeholder="Zugangscode (falls am Server gesetzt)"></div>
-        <div class="form-row" style="margin-top:10px">
-          <label class="check"><input type="checkbox" id="setAuto" ${s.auto ? "checked" : ""}> automatisch synchronisieren</label>
-        </div>
-        <div class="row-end" style="justify-content:flex-start">
-          <button class="btn primary" id="setSave">Speichern &amp; verbinden</button>
-          <button class="btn" id="syncNow">Jetzt synchronisieren</button>
-        </div>
-        <p class="help">Ohne Server werden alle Daten nur auf diesem Gerät gespeichert (auch offline). Mit Server sehen alle Geräte denselben Stand;
-          Änderungen werden offline gesammelt und beim nächsten Kontakt übertragen. Ausstehend: <b id="pendingCount">${Store.pending()}</b> Änderung(en).</p>
-      </div></div>
 
-      <div class="card"><div class="card-h"><h2>Export &amp; Import</h2></div><div class="card-b">
+      <div class="card"><div class="card-h"><h2>Sicherung &amp; Abgleich</h2></div><div class="card-b">
         <div class="form-row">
           <button class="btn" id="expJson">Sicherung exportieren (.json, inkl. Fotos)</button>
           <button class="btn" id="impJson">Sicherung importieren</button>
           <button class="btn" id="expCsv">Seriennummern &amp; Status (.csv)</button>
         </div>
-        <p class="help">Der Import führt Daten zusammen – pro Feld gewinnt die jüngste Änderung. So lassen sich Geräte auch ohne Server abgleichen.</p>
+        <p class="help">Alle Daten (Status, Seriennummern, Fotos, Notizen) werden <b>nur in diesem Browser auf diesem Gerät</b> gespeichert.
+          Regelmäßig eine Sicherung exportieren! Zum Abgleich mit Kollegen: Sicherung exportieren und beim anderen importieren –
+          die Daten werden zusammengeführt, pro Feld gewinnt die jüngste Änderung.</p>
       </div></div>`;
     $("#setNameSave").onclick = () => { const v = $("#setName").value.trim(); if (v) { Store.setUser(v); updateUser(); toast("Name gespeichert"); } };
-    $("#setSave").onclick = () => {
-      s.server = $("#setServer").value.trim(); s.token = $("#setToken").value.trim(); s.auto = $("#setAuto").checked;
-      Store.saveSettings(); Sync.resetCursor().then(() => Sync.start()); toast("Einstellungen gespeichert");
-    };
-    $("#syncNow").onclick = () => { if (!Sync.base()) return toast("Kein Server eingetragen"); Sync.run(); };
     $("#expJson").onclick = async () => { toast("Export wird erstellt …"); const d = await Store.exportJSON(true); download(`messe-technik-${stamp()}.json`, JSON.stringify(d), "application/json"); };
     $("#impJson").onclick = () => $("#importInput").click();
     $("#expCsv").onclick = exportCSV;
@@ -595,16 +571,6 @@
     a.download = name;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-  }
-  function renderSyncState() {
-    const i = Store.syncInfo;
-    for (const el of [$("#syncState"), $("#syncState2")]) {
-      if (!el) continue;
-      el.className = "sync-state " + i.state;
-      $(".txt", el).textContent = i.text;
-    }
-    const pc = $("#pendingCount");
-    if (pc) pc.textContent = Store.pending();
   }
 
   /* ---------------- Modals / allgemein ---------------- */

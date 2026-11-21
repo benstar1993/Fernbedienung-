@@ -1,9 +1,0 @@
-{
-  "name": "Messe-Technik",
-  "short_name": "Messe-Technik",
-  "start_url": "./",
-  "display": "standalone",
-  "background_color": "#f3f5f8",
-  "theme_color": "#0b5cad",
-  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
-}
