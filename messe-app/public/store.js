@@ -5,6 +5,8 @@
  *   note                Freitext
  *   sn:<gerät>:<n>      Seriennummer (gerät = Artikel#lfdNr innerhalb der POS)
  *   photo:<id>          {w, h, size} oder null (= gelöscht)
+ *   dmg:<id>            Schadensmeldung {geraet, slot, artikel, sn, ursache, text, photos:[ids], behoben,
+ *                       created, createdBy} oder null (= gelöscht)
  * Abgleich zwischen Geräten per Export/Import: pro Feld gewinnt der jüngste
  * Zeitstempel (t), bei Gleichstand der Name. Fotos liegen als Blob in IndexedDB.
  */
@@ -109,6 +111,33 @@
       await this.set(pos, "photo:" + id, { w, h, size: blob.size });
       return id;
     },
+    /* Bild nur ablegen (z. B. für Schadensmeldungen), ohne es der POS-Fotogalerie zuzuordnen */
+    async addBlob(file) {
+      const { blob } = await resizeImage(file, 1920, 0.82);
+      const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      await tx("blobs", "readwrite", (s) => s.put(blob, id));
+      return id;
+    },
+    async deleteBlob(id) { await tx("blobs", "readwrite", (s) => s.delete(id)); },
+
+    /* ---------- Schäden ---------- */
+    damages(pos) {
+      const out = [];
+      for (const [k, r] of this.entries(pos)) if (k.startsWith("dmg:") && r.v) out.push({ id: k.slice(4), pos, ...r.v, t: r.t, by: r.by });
+      return out.sort((a, b) => (a.created || a.t) - (b.created || b.t));
+    },
+    allDamages() {
+      const out = [];
+      for (const pos of fields.keys()) out.push(...this.damages(pos));
+      return out.sort((a, b) => (b.created || b.t) - (a.created || a.t));
+    },
+    async saveDamage(pos, id, data) {
+      id = id || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+      await this.set(pos, "dmg:" + id, data);
+      return id;
+    },
+    async deleteDamage(pos, id) { await this.set(pos, "dmg:" + id, null); },
+
     async deletePhoto(pos, id) { await this.set(pos, "photo:" + id, null); },
     photos(pos) {
       const out = [];
@@ -123,9 +152,13 @@
       const out = { format: "messe-technik-export", version: 1, project: project.id, exported: new Date().toISOString(), by: this.user, fields: [], photos: {} };
       for (const [pos, m] of fields) for (const [key, r] of m) out.fields.push({ pos, key, ...r });
       if (withPhotos) {
+        const ids = [];
         for (const f of out.fields) {
-          if (!f.key.startsWith("photo:") || !f.v) continue;
-          const id = f.key.slice(6);
+          if (!f.v) continue;
+          if (f.key.startsWith("photo:")) ids.push(f.key.slice(6));
+          if (f.key.startsWith("dmg:")) ids.push(...(f.v.photos || []));
+        }
+        for (const id of ids) {
           const b = await this.photoBlob(id);
           if (b) out.photos[id] = await blobToDataURL(b);
         }

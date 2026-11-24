@@ -13,10 +13,15 @@ Reine Browser-App (HTML, CSS, JavaScript) für den Messeaufbau. Sie führt **POS
 - **Seriennummern** je verbautem Gerät (Display, Zuspieler, Peripherie, Kameratechnik) per **Kamera-Scan**
   (Barcode/QR) oder Eintippen; Warnung bei doppelt vergebener Seriennummer; „nächstes Gerät scannen“
 - **Status** je POS: Vorbereitet · In Bearbeitung · Zum Prüfen · Erledigt (mit Name + Zeit)
+- **Schäden melden** direkt an der POS: betroffenes Gerät (aus der Bestückung) oder Freitext, Seriennummer
+  (wird vom Gerät übernommen, per Kamera gescannt oder eingetippt), Ursache **Vorschaden / Beim Aufbau
+  passiert / Unbekannt**, Beschreibung, beliebig viele Fotos, „behoben“-Häkchen. Offene Schäden erscheinen
+  als rotes Warnzeichen im Hallenplan, in der Liste (Filter „mit offenem Schaden“), in der Übersicht unter
+  **Unterlagen** und als eigener CSV-Export
 - **Fotos** je POS (Kamera oder Galerie, verkleinert auf max. 1920 px) und **Notiz** je POS
 - **Positionsliste** mit Suche (auch nach Gerät, Kabel-ID, Seriennummer) und Filtern nach Bereich/Status
 - **Unterlagen**: Eckdaten, zeitkritische POS, Anhang/Schemata, ganzes Booklet, Aufträge mit Ansprechpartnern
-- **Sicherung**: Export/Import als JSON (inkl. Fotos), CSV-Export der Seriennummern und Status für Excel
+- **Sicherung**: Export/Import als JSON (inkl. Fotos und Schadensfotos), CSV-Export der Seriennummern/Status und der Schäden für Excel
 
 ## Benutzung
 
@@ -24,7 +29,7 @@ Reine Browser-App (HTML, CSS, JavaScript) für den Messeaufbau. Sie führt **POS
 2. `index.html` im Ordner `public` mit Chrome oder Edge öffnen (Doppelklick).
 3. Beim ersten Start Namen eingeben.
 
-**Wo liegen die Daten?** Status, Seriennummern, Fotos und Notizen werden im Browser auf diesem Gerät
+**Wo liegen die Daten?** Status, Seriennummern, Schäden, Fotos und Notizen werden im Browser auf diesem Gerät
 gespeichert (IndexedDB) – nicht in der Datei selbst. Deshalb:
 
 - immer denselben Browser und denselben Ordnerpfad verwenden,

@@ -7,6 +7,12 @@
     { id: "erledigt", label: "Erledigt", color: "#1f9d55" },
   ];
   const ST = Object.fromEntries(STATUS.map((s) => [s.id, s]));
+  const CAUSE = {
+    vorschaden: { label: "Vorschaden", cls: "c-vor" },
+    aufbau: { label: "Beim Aufbau passiert", cls: "c-aufbau" },
+    unbekannt: { label: "Unbekannt", cls: "c-unb" },
+  };
+  const openDamages = (pid) => Store.damages(pid).filter((d) => !d.behoben);
   const ICON = {
     scan: '<svg viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 8v8M10 8v8M13 8v8M17 8v8"/></svg>',
     cam: '<svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>',
@@ -15,6 +21,7 @@
     left: '<svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>',
     right: '<svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>',
     x: '<svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>',
+    warn: '<svg viewBox="0 0 24 24"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>',
   };
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -26,7 +33,7 @@
 
   let D;                 // project.json
   let POS = new Map();   // id -> pos
-  let map, markers = new Map(), current = null, pendingRender = false;
+  let map, markers = new Map(), dmgMarkers = new Map(), markerR = 10, current = null, pendingRender = false;
 
   /* ---------------- Status / Seriennummern ---------------- */
   const statusOf = (pid) => Store.val(pid, "status") || "vorbereitet";
@@ -121,12 +128,15 @@
       const r = Math.max(5, 56 * Math.pow(2, z - Z));
       const w = r < 10 ? 2 : 3;
       markers.forEach((m) => { m.setRadius(r); m.setStyle({ weight: w }); });
+      markerR = r;
+      dmgMarkers.forEach((dm) => dm.setIcon(dmgIcon(dm.options.count)));
     };
     map.on("zoomend", resize);
     resize();
 
     $("#statusLegend").innerHTML = STATUS.map((s) => `<span class="lg"><i style="border-color:${s.color}"></i>${s.label}</span>`).join("")
-      + `<span class="lg"><i style="border-color:#b8c0cc;border-style:dashed"></i>ohne Medientechnik</span>`;
+      + `<span class="lg"><i style="border-color:#b8c0cc;border-style:dashed"></i>ohne Medientechnik</span>`
+      + `<span class="lg"><b class="lg-dmg">!</b>offener Schaden</span>`;
     $("#legendBtn").addEventListener("click", () => openViewer({ src: "data/plan_legend.jpg", caption: "Legende Hallenplan", zoomable: true }));
 
     // Suche
@@ -150,12 +160,27 @@
   function updateMarker(pid) {
     const m = markers.get(pid), p = POS.get(pid);
     if (!m) return;
+    // Warn-Badge für offene Schäden
+    const n = openDamages(pid).length;
+    let dm = dmgMarkers.get(pid);
+    if (n && !dm) {
+      dm = L.marker(m.getLatLng(), { icon: dmgIcon(n), count: n, zIndexOffset: 1000, keyboard: false });
+      dm.on("click", () => openDetail(pid));
+      dm.addTo(map);
+      dmgMarkers.set(pid, dm);
+    } else if (n && dm) { dm.options.count = n; dm.setIcon(dmgIcon(n)); }
+    else if (!n && dm) { dm.remove(); dmgMarkers.delete(pid); }
     if (!hasMT(p) && !Store.get(pid, "status")) {
       m.setStyle({ color: "#9aa4b2", fillColor: "#9aa4b2", fillOpacity: 0.06, dashArray: "4 4" });
     } else {
       const c = ST[statusOf(pid)].color;
       m.setStyle({ color: c, fillColor: c, fillOpacity: 0.22, dashArray: null });
     }
+  }
+  function dmgIcon(n) {
+    const sz = markerR < 12 ? 14 : 20, off = markerR * 0.75;
+    return L.divIcon({ className: "dmg-badge", html: `<span style="width:${sz}px;height:${sz}px;font-size:${sz * 0.62}px">${n > 1 ? n : "!"}</span>`,
+      iconSize: [sz, sz], iconAnchor: [sz / 2 - off, sz / 2 + off] });
   }
   function focusOnPlan(pid) {
     const p = POS.get(pid);
@@ -184,6 +209,7 @@
       if (p.geraete.some((g) => (g.artikel || "").toLowerCase().includes(q))) return 3;
       if (p.kabel.some((k) => String(k["Kabel-ID"]).toLowerCase().includes(q))) return 3;
       for (const [k, r] of Store.entries(p.id)) if (k.startsWith("sn:") && String(r.v || "").toLowerCase().includes(q)) return 4;
+      if (Store.damages(p.id).some((d) => String(d.sn || "").toLowerCase().includes(q))) return 4;
       return 9;
     };
     return D.pos.map((p) => [score(p), p]).filter(([s]) => s < 9).sort((a, b) => a[0] - b[0]).map(([, p]) => p);
@@ -193,7 +219,7 @@
   function initList() {
     const bereiche = [...new Set(D.pos.map((p) => p.bereich).filter(Boolean))];
     $("#fBereich").innerHTML += bereiche.map((b) => `<option>${esc(b)}</option>`).join("");
-    $("#fStatus").innerHTML += STATUS.map((s) => `<option value="${s.id}">${s.label}</option>`).join("");
+    $("#fStatus").innerHTML += STATUS.map((s) => `<option value="${s.id}">${s.label}</option>`).join("") + `<option value="_dmg">⚠ mit offenem Schaden</option>`;
     const rr = debounce(renderList, 120);
     ["#listSearch", "#fBereich", "#fStatus", "#fRelevant"].forEach((s) => $(s).addEventListener("input", rr));
     $("#posList").addEventListener("click", (e) => { const b = e.target.closest("[data-pos]"); if (b) openDetail(b.dataset.pos); });
@@ -201,7 +227,7 @@
   function renderList() {
     const q = $("#listSearch").value, fb = $("#fBereich").value, fs = $("#fStatus").value, rel = $("#fRelevant").checked;
     let list = q.trim() ? searchPos(q) : D.pos.slice();
-    list = list.filter((p) => (!fb || p.bereich === fb) && (!fs || statusOf(p.id) === fs) && (!rel || hasMT(p)));
+    list = list.filter((p) => (!fb || p.bereich === fb) && (!fs || (fs === "_dmg" ? openDamages(p.id).length > 0 : statusOf(p.id) === fs)) && (!rel || hasMT(p) || fs === "_dmg"));
     $("#listCount").textContent = `${list.length} Positionen`;
     const groups = new Map();
     for (const p of list) { const g = p.bereich || "Ohne Bereich"; if (!groups.has(g)) groups.set(g, []); groups.get(g).push(p); }
@@ -211,13 +237,13 @@
     }).join("") || `<div class="empty">Keine Positionen gefunden.</div>`;
   }
   function rowHTML(p) {
-    const s = ST[statusOf(p.id)], pr = serialProgress(p), photos = Store.photos(p.id).length;
+    const s = ST[statusOf(p.id)], pr = serialProgress(p), photos = Store.photos(p.id).length, dm = openDamages(p.id).length;
     const meta = [p.displays ? `${p.displays} Display${p.displays > 1 ? "s" : ""}` : "", p.zuspieler ? `${p.zuspieler} Zuspieler` : "", p.kabel.length ? `${p.kabel.length} Kabel` : "", ...p.flags.map((f) => f.label), p.plan ? "" : "nicht im Hallenplan"].filter(Boolean).join(" · ");
     return `<button class="pos-row ${hasMT(p) ? "" : "dim"}" data-pos="${esc(p.id)}">
       <span class="pid">${esc(p.id)}</span>
       <span><div class="pname">${esc(p.name || "–")}</div><div class="pmeta">${esc(meta || p.einordnung || "")}</div></span>
       <span class="sn">${pr.total ? `SN ${pr.done}/${pr.total}` : ""}${photos ? ` · ${photos} Foto${photos > 1 ? "s" : ""}` : ""}</span>
-      <span class="pill st-${s.id}">${s.label}</span></button>`;
+      <span class="row-end-cell">${dm ? `<span class="chip warn">${ICON.warn} ${dm}</span>` : ""}<span class="pill st-${s.id}">${s.label}</span></span></button>`;
   }
 
   function renderStats() {
@@ -226,11 +252,14 @@
     rel.forEach((p) => cnt[statusOf(p.id)]++);
     let snT = 0, snD = 0;
     rel.forEach((p) => { const r = serialProgress(p); snT += r.total; snD += r.done; });
+    const dmgOpen = Store.allDamages().filter((d) => !d.behoben).length;
     $("#sideStats").innerHTML = `<div class="muted small" style="font-weight:600">Fortschritt · ${rel.length} POS</div>
       <div class="bar">${STATUS.map((s) => `<span style="width:${(cnt[s.id] / rel.length) * 100}%;background:${s.color}"></span>`).join("")}</div>
       ${STATUS.map((s) => `<div class="stat-row"><span class="pill st-${s.id}">${s.label}</span><b>${cnt[s.id]}</b></div>`).join("")}
-      <div class="stat-row"><span class="muted">Seriennummern</span><b>${snD}/${snT}</b></div>`;
+      <div class="stat-row"><span class="muted">Seriennummern</span><b>${snD}/${snT}</b></div>
+      <div class="stat-row"><span class="muted">Offene Schäden</span><b style="color:${dmgOpen ? "var(--danger)" : "inherit"}">${dmgOpen}</b></div>`;
     renderDocsStats(cnt, rel.length, snD, snT);
+    renderDamageOverview();
   }
 
   /* ---------------- Detail ---------------- */
@@ -291,6 +320,13 @@
 
     const photos = Store.photos(pid);
     const noteRec = Store.get(pid, "note");
+    const dmgs = Store.damages(pid), dmgOpenN = dmgs.filter((d) => !d.behoben).length;
+    const dmgHTML = dmgs.map((d) => `<div class="dmg-item ${d.behoben ? "fixed" : ""}" data-dmg="${esc(d.id)}">
+        <div class="dmg-top"><span class="cause ${CAUSE[d.ursache]?.cls || ""}">${esc(CAUSE[d.ursache]?.label || "–")}</span>${d.behoben ? `<span class="chip grey">behoben</span>` : ""}<span class="grow"></span><span class="muted small">${esc(d.createdBy || d.by)} · ${fmtTime(d.created || d.t)}</span></div>
+        <div class="dmg-what"><b>${esc(d.artikel || "Ohne Gerätezuordnung")}</b>${d.sn ? ` · <span class="mono">SN ${esc(d.sn)}</span>` : ""}</div>
+        ${d.text ? `<div class="dmg-text">${esc(d.text)}</div>` : ""}
+        ${(d.photos || []).length ? `<div class="dmg-thumbs">${d.photos.map((ph) => `<img alt="" data-src="${esc(ph)}" data-dmgphoto="${esc(ph)}">`).join("")}</div>` : ""}
+      </div>`).join("");
 
     $("#drawerInner").innerHTML = `
       <div class="d-head">
@@ -316,6 +352,12 @@
         <div class="card">
           <div class="card-h"><h2>Geräte &amp; Seriennummern</h2>${pr.total ? `<span class="progress"><span class="pbar"><span style="width:${(pr.done / pr.total) * 100}%"></span></span>${pr.done}/${pr.total}</span>` : ""}</div>
           ${devHTML}
+        </div>
+
+        <div class="card ${dmgOpenN ? "card-warn" : ""}">
+          <div class="card-h"><h2>Schäden</h2>${dmgOpenN ? `<span class="chip warn">${ICON.warn} ${dmgOpenN} offen</span>` : `<span class="muted">${dmgs.length ? "alle behoben" : ""}</span>`}</div>
+          ${dmgHTML}
+          <div class="card-b"><button class="btn dmg-btn" data-act="dmg-new">${ICON.warn} Schaden melden</button></div>
         </div>
 
         <div class="card">
@@ -354,17 +396,20 @@
   function initDrawerEvents() {
     const dr = $("#drawerInner");
     dr.addEventListener("click", async (e) => {
-      const t = e.target.closest("button, img.booklet-crop, .photo");
+      const t = e.target.closest("button, img.booklet-crop, .photo, [data-dmgphoto], .dmg-item");
       if (!t || !current) return;
       const pid = current;
       if (t.dataset.status) { await Store.set(pid, "status", t.dataset.status); toast(`POS ${pid}: ${ST[t.dataset.status].label}`); return; }
       if (t.dataset.scan) return openScanner(pid, t.dataset.scan, t.dataset.label);
       if (t.dataset.page) return openBookletPage(+t.dataset.page);
       if (t.dataset.photo) return openPhoto(pid, t.dataset.photo);
+      if (t.dataset.dmgphoto) { const url = await Store.photoURL(t.dataset.dmgphoto); if (url) openViewer({ src: url, caption: `POS ${pid} · Schadensfoto` }); return; }
+      if (t.dataset.dmg) return openDamage(pid, t.dataset.dmg);
       const act = t.dataset.act;
       if (act === "close") closeDetail();
       if (act === "plan") { if (window.innerWidth <= 860) closeDetail(); focusOnPlan(pid); }
       if (act === "prev" || act === "next") { const o = currentOrder(), i = o.indexOf(pid); const n = o[i + (act === "next" ? 1 : -1)]; if (n) openDetail(n); }
+      if (act === "dmg-new") return openDamage(pid, null);
       if (act === "photo") $("#photoInput").click();
       if (act === "photo-file") $("#photoInputMulti").click();
     });
@@ -384,7 +429,7 @@
     }, 50));
     $("#drawerBackdrop").addEventListener("click", () => closeDetail());
     document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && current && $("#scanModal").hidden && $("#viewer").hidden) closeDetail();
+      if (e.key === "Escape" && current && $("#scanModal").hidden && $("#viewer").hidden && $("#dmgModal").hidden) closeDetail();
     });
     const addPhotos = async (files) => {
       const pid = current;
@@ -409,10 +454,11 @@
 
   /* ---------------- Scanner ---------------- */
   let scanCtx = null;
-  async function openScanner(pid, key, label) {
-    scanCtx = { pid, key };
+  async function openScanner(pid, key, label, cb = null, initial = "") {
+    scanCtx = { pid, key, cb };
     $("#scanTarget").textContent = `POS ${pid} · ${label}`;
-    $("#scanValue").value = Store.val(pid, key) || "";
+    $("#scanValue").value = cb ? initial : Store.val(pid, key) || "";
+    $("#scanNextWrap").hidden = !!cb;
     $("#scanHint").textContent = "Barcode/QR-Code der Seriennummer ins Feld halten";
     $("#scanHint").classList.remove("hit");
     $("#scanModal").hidden = false;
@@ -440,6 +486,7 @@
   async function saveScan() {
     if (!scanCtx) return;
     const v = $("#scanValue").value.trim();
+    if (scanCtx.cb) { const cb = scanCtx.cb; closeScanner(); cb(v); return; }
     const { pid, key } = scanCtx;
     await Store.set(pid, key, v);
     checkDuplicate(pid, key, v);
@@ -461,6 +508,125 @@
     closeScanner();
   }
   function closeScanner() { Scanner.stop(); $("#scanModal").hidden = true; scanCtx = null; }
+
+  /* ---------------- Schadensmeldung ---------------- */
+  let dmgCtx = null;
+  function deviceOptions(p) {
+    const out = [];
+    for (const g of p.geraete) {
+      if (g.serial && g.menge > 0) {
+        for (let n = 1; n <= g.menge; n++) {
+          const sn = Store.val(p.id, `sn:${g.key}:${n}`);
+          out.push({ value: `${g.key}|${n}`, label: `${g.artikel}${g.menge > 1 ? ` – Gerät ${n}` : ""}${sn ? ` (SN ${sn})` : ""}`, artikel: g.artikel + (g.menge > 1 ? ` – Gerät ${n}` : ""), sn: sn || "" });
+        }
+      } else {
+        out.push({ value: `${g.key}|0`, label: `${g.artikel}${g.menge > 1 ? ` (${g.menge}×)` : ""}`, artikel: g.artikel, sn: "" });
+      }
+    }
+    return out;
+  }
+  function openDamage(pid, id) {
+    const p = POS.get(pid);
+    const d = id ? Store.damages(pid).find((x) => x.id === id) : null;
+    const opts = deviceOptions(p);
+    dmgCtx = { pid, id, cause: d ? d.ursache : "", photos: d ? [...(d.photos || [])] : [], added: [], removed: [], opts };
+    $("#dmgTitle").textContent = d ? "Schaden bearbeiten" : "Schaden melden";
+    $("#dmgSub").textContent = `POS ${p.id} · ${p.name || ""}${d ? ` · gemeldet von ${d.createdBy || d.by}, ${fmtTime(d.created || d.t)}` : ""}`;
+    $("#dmgDevice").innerHTML = `<option value="">Kein bestimmtes Gerät / Sonstiges</option>` + opts.map((o) => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join("");
+    const devVal = d && d.geraet ? `${d.geraet}|${d.slot || 0}` : "";
+    $("#dmgDevice").value = opts.some((o) => o.value === devVal) ? devVal : "";
+    $("#dmgArtikel").value = d && !$("#dmgDevice").value ? d.artikel || "" : "";
+    $("#dmgSN").value = d ? d.sn || "" : "";
+    $("#dmgText").value = d ? d.text || "" : "";
+    $("#dmgFixed").checked = !!(d && d.behoben);
+    $("#dmgFixedWrap").hidden = !d;
+    $("#dmgDelete").hidden = !d;
+    syncDmgDevice(false);
+    renderDmgCause();
+    renderDmgPhotos();
+    $("#dmgModal").hidden = false;
+  }
+  function syncDmgDevice(fillSN) {
+    const v = $("#dmgDevice").value;
+    $("#dmgArtikelWrap").hidden = !!v;
+    if (fillSN && v) {
+      const o = dmgCtx.opts.find((x) => x.value === v);
+      if (o && o.sn) $("#dmgSN").value = o.sn;
+    }
+  }
+  function renderDmgCause() {
+    $$("#dmgCause button").forEach((b) => b.classList.toggle("on", b.dataset.cause === dmgCtx.cause));
+  }
+  function renderDmgPhotos() {
+    const el = $("#dmgPhotos");
+    el.innerHTML = dmgCtx.photos.map((id) => `<div class="photo" data-dp="${esc(id)}"><img alt="" data-src="${esc(id)}"><button class="photo-del" data-dpdel="${esc(id)}" title="Foto entfernen">✕</button></div>`).join("")
+      + `<button class="photo-add" type="button" data-dpadd="cam">${ICON.cam}<span>Foto aufnehmen</span></button>`
+      + `<button class="photo-add" type="button" data-dpadd="file">${ICON.img}<span>Aus Galerie</span></button>`;
+    $$("img[data-src]", el).forEach(async (img) => { const u = await Store.photoURL(img.dataset.src); if (u) img.src = u; });
+  }
+  async function addDmgPhotos(files) {
+    for (const f of files) {
+      try { const id = await Store.addBlob(f); dmgCtx.photos.push(id); dmgCtx.added.push(id); } catch (err) { toast(err.message); }
+    }
+    renderDmgPhotos();
+  }
+  async function saveDamage() {
+    if (!dmgCtx.cause) { toast("Bitte die Ursache auswählen", 3000); $("#dmgCause").classList.add("shake"); setTimeout(() => $("#dmgCause").classList.remove("shake"), 500); return; }
+    const { pid, id } = dmgCtx;
+    const old = id ? Store.damages(pid).find((x) => x.id === id) : null;
+    const dev = $("#dmgDevice").value;
+    const o = dmgCtx.opts.find((x) => x.value === dev);
+    const [gkey, slot] = dev ? dev.split("|") : ["", "0"];
+    const artikel = o ? o.artikel : $("#dmgArtikel").value.trim();
+    if (!artikel && !$("#dmgText").value.trim() && !dmgCtx.photos.length) { toast("Bitte Gerät, Beschreibung oder Foto angeben", 3000); return; }
+    const data = {
+      geraet: gkey, slot: +slot || null, artikel, sn: $("#dmgSN").value.trim(), ursache: dmgCtx.cause,
+      text: $("#dmgText").value.trim(), photos: dmgCtx.photos, behoben: $("#dmgFixed").checked,
+      created: old ? old.created || old.t : Date.now(), createdBy: old ? old.createdBy || old.by : Store.user || "?",
+    };
+    for (const ph of dmgCtx.removed) await Store.deleteBlob(ph);
+    await Store.saveDamage(pid, id, data);
+    dmgCtx = null;
+    $("#dmgModal").hidden = true;
+    toast(old ? "Schaden aktualisiert" : `Schaden bei POS ${pid} gemeldet`);
+  }
+  async function cancelDamage() {
+    if (dmgCtx) for (const ph of dmgCtx.added) await Store.deleteBlob(ph);
+    dmgCtx = null;
+    $("#dmgModal").hidden = true;
+  }
+  function initDamageModal() {
+    $("#dmgDevice").addEventListener("change", () => syncDmgDevice(true));
+    $("#dmgCause").addEventListener("click", (e) => { const b = e.target.closest("[data-cause]"); if (b) { dmgCtx.cause = b.dataset.cause; renderDmgCause(); } });
+    $("#dmgScan").onclick = () => {
+      const o = dmgCtx.opts.find((x) => x.value === $("#dmgDevice").value);
+      openScanner(dmgCtx.pid, null, `Schaden – ${o ? o.artikel : "Seriennummer"}`, (v) => { if (v) $("#dmgSN").value = v; }, $("#dmgSN").value);
+    };
+    $("#dmgPhotos").addEventListener("click", async (e) => {
+      const add = e.target.closest("[data-dpadd]"), del = e.target.closest("[data-dpdel]"), ph = e.target.closest("[data-dp]");
+      if (add) return add.dataset.dpadd === "cam" ? $("#dmgPhotoInput").click() : $("#dmgPhotoMulti").click();
+      if (del) {
+        const id = del.dataset.dpdel;
+        dmgCtx.photos = dmgCtx.photos.filter((x) => x !== id);
+        if (dmgCtx.added.includes(id)) { dmgCtx.added = dmgCtx.added.filter((x) => x !== id); await Store.deleteBlob(id); } else dmgCtx.removed.push(id);
+        return renderDmgPhotos();
+      }
+      if (ph) { const u = await Store.photoURL(ph.dataset.dp); if (u) openViewer({ src: u, caption: "Schadensfoto" }); }
+    });
+    $("#dmgPhotoInput").addEventListener("change", (e) => { addDmgPhotos([...e.target.files]); e.target.value = ""; });
+    $("#dmgPhotoMulti").addEventListener("change", (e) => { addDmgPhotos([...e.target.files]); e.target.value = ""; });
+    $("#dmgSave").onclick = saveDamage;
+    $("#dmgCancel").onclick = cancelDamage;
+    $("#dmgClose").onclick = cancelDamage;
+    $("#dmgDelete").onclick = async () => {
+      if (!confirm("Schadensmeldung wirklich löschen?")) return;
+      const { pid, id, photos } = dmgCtx;
+      await Store.deleteDamage(pid, id);
+      for (const ph of [...photos, ...dmgCtx.removed]) await Store.deleteBlob(ph);
+      dmgCtx = null; $("#dmgModal").hidden = true; toast("Schadensmeldung gelöscht");
+    };
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#dmgModal").hidden && $("#scanModal").hidden && $("#viewer").hidden) cancelDamage(); });
+  }
 
   /* ---------------- Viewer ---------------- */
   let viewerCtx = null;
@@ -495,6 +661,7 @@
     const e = D.event;
     $("#docs").innerHTML = `
       <div class="stats-grid" id="docStats"></div>
+      <div class="card" id="dmgOverview"></div>
       <div class="card"><div class="card-h"><h2>Eckdaten</h2><span class="muted">importiert ${fmtTime(D.generated)}</span></div><div class="card-b"><dl class="kv">
         ${[["Kunde", e.Kunde], ["Messe", `${e.Messe || ""} ${e.Jahr || ""}`], ["Ort", e.Ort], ["Aufbau ab", fmtDate(e["Aufbau ab"])], ["Messe", `${fmtDate(e["Messe von"])} – ${fmtDate(e["Messe bis"])}`], ["Projektleitung", e.Projektleitung]].filter(([, v]) => v).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}
       </dl></div></div>
@@ -516,6 +683,20 @@
       if (b.dataset.legend) openViewer({ src: "data/plan_legend.jpg", caption: "Legende Hallenplan" });
       if (b.dataset.pos) openDetail(b.dataset.pos);
     });
+  }
+  function renderDamageOverview() {
+    const el = $("#dmgOverview");
+    if (!el) return;
+    const all = Store.allDamages(), open = all.filter((d) => !d.behoben).length;
+    el.innerHTML = `<div class="card-h"><h2>Schadensmeldungen</h2><span class="muted">${all.length ? `${open} offen · ${all.length} gesamt` : "keine"}</span></div>`
+      + (all.length ? `<div class="card-b tbl-wrap"><table class="tbl"><thead><tr><th>POS</th><th>Gerät / SN</th><th>Ursache</th><th>Beschreibung</th><th>Fotos</th><th>Gemeldet</th><th></th></tr></thead><tbody>
+        ${all.map((d) => { const p = POS.get(d.pos); return `<tr class="${d.behoben ? "muted" : ""}"><td><button class="chip" data-pos="${esc(d.pos)}">POS ${esc(d.pos)}</button><div class="small muted">${esc(p ? p.name : "")}</div></td>
+          <td>${esc(d.artikel || "–")}${d.sn ? `<div class="mono small">SN ${esc(d.sn)}</div>` : ""}</td>
+          <td><span class="cause ${CAUSE[d.ursache]?.cls || ""}">${esc(CAUSE[d.ursache]?.label || "–")}</span></td>
+          <td>${esc(d.text || "")}</td><td>${(d.photos || []).length || ""}</td>
+          <td style="white-space:nowrap">${esc(d.createdBy || d.by)}<div class="small muted">${fmtTime(d.created || d.t)}</div></td>
+          <td>${d.behoben ? `<span class="chip grey">behoben</span>` : `<span class="chip warn">offen</span>`}</td></tr>`; }).join("")}
+        </tbody></table></div>` : `<div class="card-b muted small">Noch keine Schäden gemeldet. Schäden werden in der jeweiligen Position unter „Schaden melden“ erfasst.</div>`);
   }
   function renderDocsStats(cnt, total, snD, snT) {
     const el = $("#docStats");
@@ -539,6 +720,7 @@
           <button class="btn" id="expJson">Sicherung exportieren (.json, inkl. Fotos)</button>
           <button class="btn" id="impJson">Sicherung importieren</button>
           <button class="btn" id="expCsv">Seriennummern &amp; Status (.csv)</button>
+          <button class="btn" id="expDmg">Schäden (.csv)</button>
         </div>
         <p class="help">Alle Daten (Status, Seriennummern, Fotos, Notizen) werden <b>nur in diesem Browser auf diesem Gerät</b> gespeichert.
           Regelmäßig eine Sicherung exportieren! Zum Abgleich mit Kollegen: Sicherung exportieren und beim anderen importieren –
@@ -548,6 +730,7 @@
     $("#expJson").onclick = async () => { toast("Export wird erstellt …"); const d = await Store.exportJSON(true); download(`messe-technik-${stamp()}.json`, JSON.stringify(d), "application/json"); };
     $("#impJson").onclick = () => $("#importInput").click();
     $("#expCsv").onclick = exportCSV;
+    $("#expDmg").onclick = exportDamagesCSV;
   }
   function exportCSV() {
     const rows = [["POS", "Bezeichnung", "Bereich", "Status", "Status von", "Status am", "Artikel", "Kategorie", "Gerät Nr.", "Seriennummer", "erfasst von", "erfasst am", "Notiz"]];
@@ -564,6 +747,15 @@
     const csv = "﻿" + rows.map((r) => r.map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`).join(";")).join("\r\n");
     download(`seriennummern-status-${stamp()}.csv`, csv, "text/csv;charset=utf-8");
   }
+  function exportDamagesCSV() {
+    const rows = [["POS", "Bezeichnung", "Bereich", "Gerät", "Seriennummer", "Ursache", "Beschreibung", "Anzahl Fotos", "Status", "gemeldet von", "gemeldet am", "zuletzt geändert von", "zuletzt geändert am"]];
+    for (const d of Store.allDamages()) {
+      const p = POS.get(d.pos) || {};
+      rows.push([d.pos, p.name, p.bereich, d.artikel, d.sn, CAUSE[d.ursache]?.label || "", d.text, (d.photos || []).length, d.behoben ? "behoben" : "offen", d.createdBy || d.by, fmtTime(d.created || d.t), d.by, fmtTime(d.t)]);
+    }
+    const csv = "\ufeff" + rows.map((r) => r.map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`).join(";")).join("\r\n");
+    download(`schaeden-${stamp()}.csv`, csv, "text/csv;charset=utf-8");
+  }
   const stamp = () => new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
   function download(name, content, type) {
     const a = document.createElement("a");
@@ -576,6 +768,7 @@
   /* ---------------- Modals / allgemein ---------------- */
   function initModals() {
     initDrawerEvents();
+    initDamageModal();
     $("#scanClose").onclick = closeScanner;
     $("#scanSave").onclick = saveScan;
     $("#scanValue").addEventListener("keydown", (e) => { if (e.key === "Enter") saveScan(); });

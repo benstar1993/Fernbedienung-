@@ -99,7 +99,51 @@
       <input type="text" id="scanValue" placeholder="Seriennummer (scannen oder eintippen)" autocomplete="off" autocapitalize="characters" spellcheck="false">
       <button class="btn primary" id="scanSave">Übernehmen</button>
     </div>
-    <label class="check small"><input type="checkbox" id="scanNext" checked> danach nächstes freies Gerät dieser Position scannen</label>
+    <label class="check small" id="scanNextWrap"><input type="checkbox" id="scanNext" checked> danach nächstes freies Gerät dieser Position scannen</label>
+  </div>
+</div>
+
+<!-- Schadensmeldung -->
+<div class="modal" id="dmgModal" hidden>
+  <div class="modal-card dmg-card">
+    <div class="modal-head">
+      <div><div class="modal-title" id="dmgTitle">Schaden melden</div><div class="muted small" id="dmgSub"></div></div>
+      <button class="icon-btn" id="dmgClose" aria-label="Schließen">✕</button>
+    </div>
+    <div class="form-grid">
+      <label class="fl">Betroffenes Gerät
+        <select id="dmgDevice"></select>
+      </label>
+      <label class="fl" id="dmgArtikelWrap">Was ist beschädigt?
+        <input type="text" id="dmgArtikel" placeholder="z. B. Wandhalterung, Kabel, Möbel …" autocomplete="off">
+      </label>
+      <div class="fl">Seriennummer
+        <div class="sn-row">
+          <input type="text" id="dmgSN" placeholder="Seriennummer (optional)" autocomplete="off" autocapitalize="characters" spellcheck="false">
+          <button class="scan-btn" id="dmgScan" type="button"><svg viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 8v8M10 8v8M13 8v8M17 8v8"/></svg><span>Scan</span></button>
+        </div>
+      </div>
+      <div class="fl"><span>Ursache <span class="req">*</span></span>
+        <div class="cause-seg" id="dmgCause">
+          <button type="button" data-cause="vorschaden">Vorschaden</button>
+          <button type="button" data-cause="aufbau">Beim Aufbau passiert</button>
+          <button type="button" data-cause="unbekannt">Unbekannt</button>
+        </div>
+      </div>
+      <label class="fl">Beschreibung
+        <textarea id="dmgText" placeholder="Was ist beschädigt, wo genau, wie stark? Ist das Gerät noch nutzbar?"></textarea>
+      </label>
+      <div class="fl">Fotos
+        <div class="photos" id="dmgPhotos"></div>
+      </div>
+      <label class="check" id="dmgFixedWrap"><input type="checkbox" id="dmgFixed"> Schaden ist behoben / erledigt</label>
+    </div>
+    <div class="dmg-foot">
+      <button class="btn danger ghost" id="dmgDelete">Löschen</button>
+      <span class="grow"></span>
+      <button class="btn" id="dmgCancel">Abbrechen</button>
+      <button class="btn primary" id="dmgSave">Schaden speichern</button>
+    </div>
   </div>
 </div>
 
@@ -122,6 +166,8 @@
 
 <input type="file" id="photoInput" accept="image/*" capture="environment" hidden>
 <input type="file" id="photoInputMulti" accept="image/*" multiple hidden>
+<input type="file" id="dmgPhotoInput" accept="image/*" capture="environment" hidden>
+<input type="file" id="dmgPhotoMulti" accept="image/*" multiple hidden>
 <input type="file" id="importInput" accept="application/json,.json" hidden>
 <div class="toast" id="toast"></div>
 
